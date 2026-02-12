@@ -1,89 +1,64 @@
-# ✦ Claude Activity Tracker
+# Claude Activity Tracker
 
-A macOS menu bar app that shows what you accomplished with Claude today.
+A macOS menu bar app that reads Claude Code JSONL session files and displays daily activity summaries powered by Gemini AI.
 
-Instead of just tracking "how much time you spent with AI," this tool focuses on **what you got done** — reading your Claude Code session data to surface a daily activity dashboard right in your menu bar.
+## Features
+
+- **AI Daily Summary** — Gemini Flash generates a headline, narrative, and highlights from your sessions
+- **Active Time Tracking** — gap-based duration (ignores idle time > 30 min)
+- **History** — persistent daily summaries with 7-day backfill via Gemini API
+- **Project Time Chart** — horizontal bar chart showing time per project this week
+- **Auto-Refresh** — file watcher detects JSONL changes, no manual refresh needed
+- **Session Caching** — skips re-parsing unchanged files based on modification date
 
 ## How It Works
 
 ```
-~/.claude/projects/
-├── -Users-you-project-a/
-│   ├── session-uuid-1.jsonl    ← parsed for messages, timestamps, summaries
-│   └── session-uuid-2.jsonl
-├── -Users-you-project-b/
-│   └── session-uuid-3.jsonl
+~/.claude/projects/**/*.jsonl
+        | loadAllSessions() + cache
+    [SessionInfo] x N
+        | group by day
+    DayStats (today) + weekStats (7 days)
+        | buildPrompt()
+    Gemini API
+        | parseSummaryResponse()
+    DailySummary -> UI + disk cache
 ```
 
-Claude Code stores every conversation as JSONL files. This app reads them and shows:
+Claude Code stores every conversation as JSONL files in `~/.claude/projects/`. This app parses them to extract:
 
-- **Today's sessions** — how many, which projects, what was discussed
-- **Time tracking** — duration of each session based on first/last message timestamps
-- **Summaries** — what was accomplished in each session (from system summaries)
-- **Weekly overview** — bar chart of your 7-day activity pattern
-- **Project breakdown** — which projects got the most attention
+- **Intent** — genuine human messages (filtered from tool_results, system prompts, plugin noise)
+- **Files touched** — from tool_use file_path inputs
+- **Commands run** — from bash tool_use inputs
+- **Assistant notes** — substantive Claude responses
 
 ## Architecture
 
 ```
 ClaudeActivityTracker/
-├── ClaudeActivityTrackerApp.swift   # App entry, NSStatusItem, popover
-├── ClaudeActivityMonitor.swift      # JSONL parser, session data model
-├── DashboardView.swift              # SwiftUI popover UI
-└── Package.swift                    # Swift Package Manager config
+  ClaudeActivityTrackerApp.swift   # App entry, NSStatusItem, popover, file watcher setup
+  ClaudeActivityMonitor.swift      # JSONL parser, session data model, file watcher, caching
+  ClaudeSummaryService.swift       # Gemini API, prompt builder, persistence, backfill
+  DashboardView.swift              # SwiftUI UI (Today / This Week / History tabs)
 ```
-
-### Key Design Decisions
-
-- **Swift + SwiftUI** — native macOS, minimal resource usage (~10MB RAM)
-- **No network requests** — reads local files only, fully offline
-- **60s refresh interval** — light on CPU, always up to date
-- **Lazy parsing** — only parses first/last lines of large JSONL files for performance
-- **No privacy concerns** — data never leaves your machine
 
 ## Build & Run
 
-### Prerequisites
-- macOS 13+ (Ventura)
-- Xcode 15+ or Swift 5.9+
+Requires macOS 13+ and Swift 5.9+.
 
-### Option 1: Xcode
-1. Open the project folder in Xcode
-2. Build & Run (⌘R)
-
-### Option 2: Command Line
 ```bash
-cd claude-activity-tracker
 swift build -c release
-# Binary at .build/release/ClaudeActivityTracker
+.build/release/ClaudeActivityTracker
 ```
 
-### Launch at Login
-1. Open **System Settings → General → Login Items**
-2. Add the built app
+## Configuration
 
-## Roadmap
+Click the gear icon in the app popover to open Settings:
 
-- [x] Read Claude Code JSONL sessions
-- [ ] Claude.ai web session tracking (via browser extension)
-- [ ] AI-powered daily summary (call Claude API to summarize your day)
-- [ ] Keyboard shortcut to open dashboard
-- [ ] Export weekly report as markdown
-- [ ] Notification: "You've been coding with Claude for 2 hours — take a break?"
-- [ ] Token usage tracking (estimate API costs)
-- [ ] Integration with other productivity tools (Raycast, Alfred)
+- **Gemini API Key** — get a free key from [Google AI Studio](https://aistudio.google.com/apikey). Without it, summaries use local fallback (no AI).
+- Also reads from environment variable `GEMINI_API_KEY`.
 
-## Data Format
-
-Each JSONL line in a session file follows this structure:
-
-```json
-{"type":"user","message":{"role":"user","content":"Help me fix the auth bug"},"timestamp":"2025-02-11T10:30:00.000Z"}
-{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I'll help..."}]},"timestamp":"2025-02-11T10:30:15.000Z"}
-{"type":"summary","message":{"role":"user","content":"Fixed auth bug by..."},"timestamp":"2025-02-11T11:00:00.000Z"}
-```
-
-The app parses `type`, `timestamp`, and content preview from these lines.
+Summaries are saved to `~/.claude-activity/summaries/YYYY-MM-DD.json`.
 
 ## License
 
